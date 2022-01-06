@@ -1,0 +1,20 @@
+{
+  "storages": [
+    {
+      "caption": "dropbox",
+      "id": "id1",
+      "current_path": "",
+      "tokens": {
+        "token": "",
+        "refresh_token": ""
+      },
+      "api_key": {
+        "client_id": "must be entered",
+        "secret": "must be entered"
+      },
+      "redirect_addresses": [
+        "http://127.0.0.1:7072/dropbox"
+      ]
+    }
+  ]
+}

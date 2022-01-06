@@ -1,0 +1,44 @@
+[package]
+name = "clouds_viewer"
+version = "0.1.1"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[profile.release]
+overflow-checks = false
+lto = true
+#opt-level = 'z'  # Optimize for size.
+codegen-units = 1
+#panic = "abort"
+
+[dependencies]
+#egui = { version = "0.15.0", path = "../egui-0.15.0/egui", default-features = false }
+#eframe = { version = "*", default-features = false, features = ["default_fonts", "egui_glow"] }
+#eframe = { path = "crates/egui-master/eframe", default-features = false, features = ["default_fonts", "egui_glow"] }
+#eframe = { git = "https://github.com/emilk/egui" }
+eframe = { version = "*" }
+serde_json = "*"
+serde = { version = "*", features = ["derive"] }
+chrono = { version = "*", features = ["serde"] }
+bytes = "*"
+thiserror = "*"
+anyhow = "*"
+http = "*"
+http-body = "*"
+futures = "*"
+futures-util = "*"
+hyper = { version = "*", features = ["client", "http1", "http2", "stream", "runtime"] }
+hyper-rustls = { version = "*", features = ["default", "rustls-native-certs", "http2"] }
+#hyper-tls = "*"
+tokio = { version = "*", features = ["full"] }
+log = "*"
+log4rs = "*"
+#async-trait = "*"
+backoff = { version = "*", features = ["tokio"] }
+webbrowser = "*"
+tiny_http = "*"
+base64 = "*"
+#url = "*"
+form_urlencoded = "*"
+open = "*"
