@@ -157,7 +157,7 @@ impl AppState {
                                         } else {
                                             folder.path.clone() + "/" + &item.name
                                         };
-                                        let local_file_path = r"/lindata/dev/projects/clouds/clouds_viewer/downloads/".to_owned() + &item.name;
+                                        let local_file_path = storage.save_to_path.clone() + &item.name;
                                         storage.download_file(remote_file_path, local_file_path);
                                     }
                                 }
@@ -171,7 +171,7 @@ impl AppState {
                                         } else {
                                             folder.path.clone() + "/" + &item.name
                                         };
-                                        let local_file_path = r"/lindata/dev/projects/clouds/clouds_viewer/downloads/".to_owned() + &item.name;
+                                        let local_file_path = storage.save_to_path.clone() + &item.name;
                                         storage.download_file(remote_file_path, local_file_path);
                                     }
                                 }

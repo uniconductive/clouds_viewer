@@ -24,6 +24,8 @@ pub struct StorageConfig {
     pub tokens: TokensConfig,
     pub api_key: ApiKeyConfig,
     pub redirect_addresses: Vec<String>,
+    #[serde(default)]
+    pub download_to: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

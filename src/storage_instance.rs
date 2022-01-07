@@ -4,6 +4,7 @@ use std::{
     },
     collections::HashMap,
 };
+use http::Uri;
 use crate::storages;
 use crate::clouds;
 use crate::call_messages;
@@ -82,6 +83,7 @@ pub struct StorageInstance {
 //    pub last_call_id: u64,
     pub visual_state: StorageVisualState,
     pub auth_info_holder: clouds::AuthInfoHolder,
+    pub save_to_path: String,
 }
 
 impl StorageInstance {
@@ -243,9 +245,21 @@ impl StorageInstance {
         let rth = self.rth.clone();
         rt.spawn(async move {
             let auth_info = { auth_info_holder.read().await.clone() };
+            // to list of like: 127.0.0.1:7072
+            // TODO handle errors
+            let addr_list: Vec<String> = auth_info.redirect_addresses.iter().map(|addr| {
+                let url: Uri = addr.parse().unwrap();
+                url.host().unwrap().to_string() + ":" + &url.port_u16().unwrap().to_string()
+            }).collect();
             let server_state = &mut server_state_holder.write().unwrap();
             if server_state.http_server.is_none() {
-                server_state.http_server = crate::http_server::try_run(rth, auth_info_holder, [r"127.0.0.1:7072".to_string()].to_vec(), server_state_holder.clone());
+                server_state.http_server = crate::http_server::try_run(
+                    rth,
+                    auth_info_holder,
+//                    [r"127.0.0.1:7072".to_string()].to_vec(),
+                    addr_list,
+                    server_state_holder.clone()
+                );
             }
             if server_state.http_server.is_none() {
                 server_state.last_error = Some("can't run local http server to handle auth requests.".to_string());

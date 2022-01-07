@@ -9,6 +9,14 @@ use crate::storage_models;
 use crate::config;
 use crate::storage_instance;
 
+#[derive(thiserror::Error, Debug, Clone)]
+pub enum InitError {
+    #[error("Invalid download_to path '{path:?}' for storage '{storage:?}'")]
+    InvalidStorageDownloadToPath {
+        path: String,
+        storage: String,
+    },
+}
 
 fn init_log() -> Result<log4rs::Handle, Box<dyn std::error::Error>> {
     let stderr = ConsoleAppender::builder().target(Target::Stderr).build();
@@ -95,6 +103,21 @@ pub fn init() -> Result<crate::AppState, Box<dyn std::error::Error>> {
                     write_mutex: std::sync::Arc::new(tokio::sync::RwLock::new(0)),
                     redirect_addresses: config.redirect_addresses.clone(),
                 })),
+            save_to_path: {
+                let mut path = config.download_to.clone();
+                if path.is_empty() {
+                    path = "./".to_string();
+                }
+                let mut path: String = match std::fs::canonicalize(&path) {
+                    Ok(path) => Ok(path.to_str().unwrap().to_string()),
+                    Err(e) => Err(InitError::InvalidStorageDownloadToPath { path: path, storage: config.caption.clone() })
+                }?;
+                if !path.ends_with("/") {
+                    path = path + "/";
+                }
+                log::info!("download path for {}: {}", &config.caption, &path);
+                path
+            }
         };
         storages.push(storage);
     }
