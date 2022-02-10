@@ -7,6 +7,8 @@ It is a viewer of Dropbox cloud storage:
 
 Developed on Linux, but supposed to work on Windows and macOS too.
 
+![alt text](https://github.com/uniconductive/clouds_viewer/blob/main/resources/images/app.png?raw=true)
+
 Setup:  
 1. Create new dropbox app in <https://www.dropbox.com/developers/apps>.    
 2. On permissions page of application enable: **files.metadata.write**, **files.metadata.read**, **files.content.write**, **files.content.read**.  
