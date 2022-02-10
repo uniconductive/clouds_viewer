@@ -9,10 +9,12 @@ Developed on Linux, but supposed to work on Windows and macOS too.
 
 ![alt text](https://github.com/uniconductive/clouds_viewer/blob/main/resources/images/app.png?raw=true)
 
+Compile: "cargo build" or "cargo build --release".
+
 Setup:  
 1. Create new dropbox app in <https://www.dropbox.com/developers/apps>.    
 2. On permissions page of application enable: **files.metadata.write**, **files.metadata.read**, **files.content.write**, **files.content.read**.  
-3. At ./configs/ copy **clouds_viewer.config.proto** to **clouds_viewer.config**.    
+3. Rename **./configs/clouds_viewer.config.proto** to **clouds_viewer.config** and place it in folder with compiled binary.    
 4. In **clouds_viewer.config** do one of:
    - Fill **storage.tokens.token** field (use **generated access token** from settings page of dropbox app (token must be generated after setting permissions))
    - Fill fields:
