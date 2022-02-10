@@ -1,4 +1,11 @@
-**Note: this is my first Rust project.**
+**Note: this is my first Rust project. For Rust education purposes**
+
+It is a viewer of Dropbox cloud storage:
+- OAuth2 authentication with default web browser
+- file-system navigation
+- downloading files (in parallel), with automatic open by default app on finish.
+
+Developed on Linux, but supposed to work on Windows and macOS too.
 
 Setup:  
 1. Create new dropbox app in <https://www.dropbox.com/developers/apps>.    
