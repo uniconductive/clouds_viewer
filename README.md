@@ -1,4 +1,4 @@
-**Note: this is my first Rust project. For Rust education purposes**
+**Note: this is my first Rust project**
 
 It is a viewer of Dropbox cloud storage:
 - OAuth2 authentication with default web browser
