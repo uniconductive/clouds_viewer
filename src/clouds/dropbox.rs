@@ -1,33 +1,22 @@
-//#[path = "./clouds_shared.rs"] mod clouds_shared;
-// https://curl.se/docs/manpage.html
-//#[path = "base.rs"] mod base;
-
-use std::{
-    error::{Error},
-    result::{Result},
-    io::{Read},
-    sync::{Arc},
-    time::{Instant, Duration},
-};
-use tokio::{
-    sync::{
-        RwLock,
-//        mpsc::UnboundedSender,
-    },
-};
-use serde::{
-    Serialize,
-    Deserialize,
-};
+use crate::call_messages;
+use crate::clouds;
+use crate::common_types::*;
+use backoff::{future::retry, ExponentialBackoff};
 use chrono::prelude::*;
 use hyper::{Body, Client};
-use backoff::{ExponentialBackoff, future::retry};
-//use futures_util::future::err;
-//use serde::de::DeserializeOwned;
-use crate::body_aggregator;
-use crate::clouds;
-use crate::call_messages;
-use crate::common_types::*;
+use serde::{Deserialize, Serialize};
+use std::{
+    result::Result,
+    sync::Arc,
+    time::{Duration, Instant},
+};
+use tokio::sync::RwLock;
+
+// https://www.dropbox.com/developers/documentation/http/documentation
+/*
+    good paths: "", "/folder"
+    bad paths: "/";  "folder"
+*/
 
 pub trait WithRefreshToken<T> {
     fn refresh_token(&self) -> T;
@@ -40,22 +29,20 @@ pub enum ListFolderCallError {
     Base(clouds::BaseError),
     #[error("path not found: {0}")]
     PathNotFound(String),
-//    #[error("Std error with text: {0}")]
-//    Std(Box<dyn std::error::Error>),
 }
 
 impl clouds::BaseErrorAccess for ListFolderCallError {
     fn get_base_error(&self) -> Option<&clouds::BaseError> {
         match self {
             Self::Base(res) => Some(res),
-            _ => None
+            _ => None,
         }
     }
 
     fn get_base_error_mut(&mut self) -> Option<&mut clouds::BaseError> {
         match self {
             Self::Base(res) => Some(res),
-            _ => None
+            _ => None,
         }
     }
 
@@ -86,14 +73,19 @@ pub enum DownloadFileCallError {
         file: String,
         error: String,
     },
-    #[error("Download file result does not contain needed header ({header:?}), cloud file: '{cloud_file:?}', headers: [{headers:?}], status: {status:?})")]
+    #[error(
+        "Download file result does not contain needed header ({header:?}), \
+        cloud file: '{cloud_file:?}', headers: [{headers:?}], status: {status:?})"
+    )]
     HeaderNotFound {
         cloud_file: String,
         status: u16,
         header: String,
         headers: String,
     },
-    #[error("next data chunk error (cloud_file: {cloud_file:?}, position: {position:?}): {error:?}")]
+    #[error(
+        "next data chunk error (cloud_file: {cloud_file:?}, position: {position:?}): {error:?}"
+    )]
     NextChunk {
         cloud_file: String,
         position: u64,
@@ -104,61 +96,79 @@ pub enum DownloadFileCallError {
 }
 
 impl DownloadFileCallError {
-/*
-    pub fn is_permanent(&self) -> bool {
-        match &self {
-            Self::Base(base) => base.is_permanent(),
-            Self::NextChunk {..} => false,
-
-            Self::FileCreate {..}
-            | Self::FileWrite {..}
-            | Self::FileSyncAll {..}
-            | Self::HeaderNotFound {..}
-            => true,
-        }
-    }
-*/
-    fn e_file_create(action: &str, e: std::io::Error, cloud_file: &String, file: &String) -> Self {
-        log::error!("{}(error on file save): {}, file: '{}'", action, e.to_string(), file);
+    fn e_file_create(action: &str, e: std::io::Error, cloud_file: &str, file: &str) -> Self {
+        log::error!(
+            "{}(error on file save): {}, file: '{}'",
+            action,
+            e.to_string(),
+            file
+        );
         Self::FileCreate {
-            cloud_file: cloud_file.clone(),
-            file: file.clone(),
+            cloud_file: cloud_file.to_owned(),
+            file: file.to_owned(),
             error: e.to_string(),
         }
     }
 
-    fn e_file_write(action: &str, e: std::io::Error, cloud_file: &String, file: &String) -> Self {
-        log::error!("{}(error on file save): {}, file: '{}'", action, e.to_string(), file);
+    fn e_file_write(action: &str, e: std::io::Error, cloud_file: &str, file: &str) -> Self {
+        log::error!(
+            "{}(error on file save): {}, file: '{}'",
+            action,
+            e.to_string(),
+            file
+        );
         Self::FileWrite {
-            cloud_file: cloud_file.clone(),
-            file: file.clone(),
+            cloud_file: cloud_file.to_owned(),
+            file: file.to_owned(),
             error: e.to_string(),
         }
     }
 
-    fn e_file_sync_all(action: &str, e: std::io::Error, cloud_file: &String, file: &String) -> Self {
-        log::error!("{}(error on sync_all): {}, file: '{}'", action, e.to_string(), file);
+    fn e_file_sync_all(action: &str, e: std::io::Error, cloud_file: &str, file: &str) -> Self {
+        log::error!(
+            "{}(error on sync_all): {}, file: '{}'",
+            action,
+            e.to_string(),
+            file
+        );
         Self::FileSyncAll {
-            cloud_file: cloud_file.clone(),
-            file: file.clone(),
+            cloud_file: cloud_file.to_owned(),
+            file: file.to_owned(),
             error: e.to_string(),
         }
     }
 
-    fn e_header_not_found(action: &str, header: &str, headers: &String, cloud_file: &String, status: u16) -> Self {
-        log::error!("{}(result does not contain needed header ({})), headers: {}, cloud file: '{}'", action, header, headers, cloud_file);
+    fn e_header_not_found(
+        action: &str,
+        header: &str,
+        headers: &str,
+        cloud_file: &str,
+        status: u16,
+    ) -> Self {
+        log::error!(
+            "{}(result does not contain needed header ({})), headers: {}, cloud file: '{}'",
+            action,
+            header,
+            headers,
+            cloud_file
+        );
         Self::HeaderNotFound {
-            cloud_file: cloud_file.clone(),
+            cloud_file: cloud_file.to_owned(),
             status,
-            header: header.to_string(),
-            headers: headers.clone(),
+            header: header.to_owned(),
+            headers: headers.to_owned(),
         }
     }
 
-    fn e_next_chunk(action: &str, e: hyper::Error, cloud_file: &String, position: u64) -> Self {
-        log::error!("{}(error on getting next chunk of data): {}, cloud file: '{}'", action, e.to_string(), cloud_file);
+    fn e_next_chunk(action: &str, e: hyper::Error, cloud_file: &str, position: u64) -> Self {
+        log::error!(
+            "{}(error on getting next chunk of data): {}, cloud file: '{}'",
+            action,
+            e.to_string(),
+            cloud_file
+        );
         Self::NextChunk {
-            cloud_file: cloud_file.clone(),
+            cloud_file: cloud_file.to_owned(),
             position,
             error: e.to_string(),
         }
@@ -169,21 +179,14 @@ impl clouds::BaseErrorAccess for DownloadFileCallError {
     fn get_base_error(&self) -> Option<&clouds::BaseError> {
         match self {
             Self::Base(res) => Some(res),
-            _ => None
+            _ => None,
         }
     }
-/*
-    fn get_base_error_mut(&mut self) -> Option<&mut (&mut BaseCloudError)> {
-        match self {
-            Self::Base(res) => Some(&mut res),
-            _ => None
-        }
-    }
-*/
+
     fn get_base_error_mut(&mut self) -> Option<&mut clouds::BaseError> {
         match self {
             Self::Base(res) => Some(res),
-            _ => None
+            _ => None,
         }
     }
 
@@ -226,16 +229,8 @@ pub struct FileMeta {
     pub rev: String,
     #[serde(default)]
     pub size: u64,
-    //    parent_shared_folder_id: string;
-    //    media_info:
-    //    symlink_info:
-    //    sharing_info:
     #[serde(default)]
     pub is_downloadable: bool,
-    //    export_info:
-    //    property_groups:
-    //    #[serde(default)]
-    //    pub has_explicit_shared_members: bool,
     #[serde(default)]
     pub content_hash: String,
 }
@@ -246,8 +241,6 @@ pub struct FolderMeta {
     pub path_lower: String,
     pub path_display: String,
     pub id: String,
-//    pub client_modified: DateTime<Utc>,
-//    pub server_modified: DateTime<Utc>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -301,21 +294,7 @@ pub struct DownloadFileCallResult {
     pub size: u64,
     pub path_lower: String,
     pub path_display: String,
-//        #[serde(default)]
-//        pub file_data: Vec<u8>,
 }
-
-/*
-// https://www.dropbox.com/developers/documentation/http/documentation#files-list_folder
-LookupError
-malformed_path: String?
-not_found
-not_file
-not_folder
-restricted_content
-unsupported_content_type
-locked
-*/
 
 #[derive(Deserialize, Debug)]
 #[serde(tag = ".tag")]
@@ -356,14 +335,12 @@ pub enum DownloadFileErrorTag {
 #[derive(Deserialize, Debug)]
 #[serde(tag = ".tag")]
 pub enum RefreshTokenErrorTag {
-//    #[serde(rename = "_")]
     NotImplemented,
 }
 
 #[derive(Deserialize, Debug)]
 #[serde(tag = ".tag")]
 pub enum AuthCodeToTokenErrorTag {
-//    #[serde(rename = "_")]
     NotImplemented,
 }
 
@@ -371,7 +348,7 @@ pub enum AuthCodeToTokenErrorTag {
 #[serde(untagged)]
 pub enum ErrorTag<T> {
     Base(BaseErrorTag),
-    Routine(T) // ListFolderErrorTag, etc
+    Routine(T), // ListFolderErrorTag, etc
 }
 
 impl<T> Default for ErrorTag<T> {
@@ -383,123 +360,145 @@ impl<T> Default for ErrorTag<T> {
 #[derive(Default, Deserialize, Debug)]
 pub struct ApiCallError<T> {
     pub error_summary: String,
-//    #[serde(flatten)]
-    pub error: ErrorTag<T>
+    pub error: ErrorTag<T>,
 }
 
 fn https_connector() -> hyper_rustls::HttpsConnector<hyper::client::HttpConnector> {
     let mut http_connector = hyper::client::HttpConnector::new();
     http_connector.enforce_http(false);
-//        http_connector.set_keepalive(Some(std::time::Duration::from_secs(60)));
 
     hyper_rustls::HttpsConnectorBuilder::new()
         .with_native_roots()
-//        .https_or_http()
         .https_only()
-//        .enable_http1()
         .enable_http2()
         .wrap_connector(http_connector)
 }
 
-fn client_http2() -> Client<hyper_rustls::HttpsConnector<hyper::client::HttpConnector>> {
+fn client_http2(
+    rth: &RuntimeHolder,
+) -> Client<hyper_rustls::HttpsConnector<hyper::client::HttpConnector>> {
     let https = https_connector();
-    Client::builder().http2_only(true).build::<_, Body>(https)
+    Client::builder()
+        .http2_only(true)
+        .executor(rth.clone())
+        .build::<_, Body>(https)
 }
-
-/*
-fn request_builder() -> http::request::Builder {
-    hyper::Request::builder()
-}
-*/
 
 fn request_builder_http2() -> http::request::Builder {
     hyper::Request::builder().version(http::version::Version::HTTP_2)
 }
 
-async fn extract_error_body(response: http::Response<hyper::body::Body>) -> Result<String, Box<dyn Error>> {
-    use bytes::Buf;// for body.reader()
-
-    let body_res = body_aggregator::async_aggregate(response).await;
-    if body_res.is_ok() {
-        let body = body_res.unwrap();
-        let mut v = Vec::new();
-        let res = body.reader().read_to_end(&mut v);
-        if res.is_ok() {
-            let error = String::from_utf8_lossy(&v).to_string();
-            Ok(error)
-        }
-        else {
-            Err(res.err().unwrap().into())
-        }
-    }
-    else {
-        Err(body_res.err().unwrap().into())
-    }
+#[derive(Serialize, Deserialize, Debug)]
+struct Code400ErrorData {
+    error: String,
+    error_description: String,
 }
 
-async fn create_error_from_body<T, TRoutine, CF>(response: http::Response<hyper::body::Body>, action: &str, status: u16, convert_f: CF) -> T
+fn create_error_from_body_data<T, TRoutine, CF>(
+    body_data: &[u8],
+    action: &str,
+    status: u16,
+    convert_f: CF,
+) -> T
 where
     T: clouds::BaseErrorAccess,
     TRoutine: serde::de::DeserializeOwned,
-//    ApiCallErrorType: ApiCallError<TRoutine>,
-    CF: FnOnce(TRoutine) -> T
+    CF: FnOnce(TRoutine) -> T,
 {
-    let res: Result<(), T> = extract_error_body(response).await.map_err(|e| T::from_base(clouds::BaseError::e_error_body_aggregate(action, e))
-    ).and_then(|error_data| {
-        if status == 400 {
-            if error_data.contains("The given OAuth 2 access token is malformed") {
-                Err(T::from_base(clouds::BaseError::e_access_token_malformed(action)))
+    let error_data: String = String::from_utf8_lossy(body_data).to_string();
+    if status == 400 {
+        match serde_json::from_str::<Code400ErrorData>(&error_data) {
+            Ok(data) => {
+                if data.error == "invalid_grant"
+                    && ["refresh token is malformed", "refresh token is invalid or revoked"]
+                    .contains(&data.error_description.as_str())
+                {
+                    T::from_base(clouds::BaseError::e_refresh_token_malformed(action))
+                } else {
+                    T::from_base(clouds::BaseError::e_unknown_api_error_result(
+                        action,
+                        status,
+                        &error_data,
+                    ))
+                }
             }
-            else {
-                Err(T::from_base(clouds::BaseError::e_unknown_api_error_result(action, status, &error_data)))
+            Err(_) => {
+                if error_data.contains("The given OAuth 2 access token is malformed") {
+                    T::from_base(clouds::BaseError::e_access_token_malformed(action))
+                } else if error_data.contains("invalid_client: Invalid client_id or client_secret")
+                {
+                    T::from_base(clouds::BaseError::e_invalid_client_id_or_client_secret(
+                        action,
+                    ))
+                } else if error_data
+                    .contains(r#"Invalid authorization value in HTTP header "Authorization": "#)
+                {
+                    T::from_base(clouds::BaseError::e_invalid_authorization_value(action))
+                } else {
+                    T::from_base(clouds::BaseError::e_unknown_api_error_result(
+                        action,
+                        status,
+                        &error_data,
+                    ))
+                }
             }
-        } else {
-            (serde_json::from_str(&error_data) as Result<ApiCallError<TRoutine>, serde_json::Error>).map_err(|e| T::from_base(clouds::BaseError::e_error_body_deserialization(action, e, &error_data))
-            ).and_then(|err_data| {
-                let res =  match err_data.error {
+        }
+    } else {
+        serde_json::from_str::<ApiCallError<TRoutine>>(&error_data)
+            .map_err(|e| {
+                T::from_base(clouds::BaseError::e_error_body_deserialization(
+                    action,
+                    e,
+                    &error_data,
+                ))
+            })
+            .and_then::<ApiCallError<TRoutine>, _>(|err_data| {
+                Err(match err_data.error {
                     ErrorTag::Base(BaseErrorTag::ExpiredAccessToken) => {
                         log::error!("{}(ErrorTag::ExpiredAccessToken)", action);
-                        T::from_base(clouds::BaseError::ExpiredAccessToken { refresh_error: None })
-                    },
+                        T::from_base(clouds::BaseError::ExpiredAccessToken {
+                            refresh_error: None,
+                        })
+                    }
                     ErrorTag::Base(BaseErrorTag::Unknown) => {
-                        log::error!("{}(ErrorTag::Unknown), error_summary: {}", action, err_data.error_summary.clone());
+                        log::error!(
+                            "{}(ErrorTag::Unknown), error_summary: {}",
+                            action,
+                            err_data.error_summary
+                        );
                         T::from_base(clouds::BaseError::UnknownApiErrorStructure {
                             action: action.to_owned(),
                             hint: "".to_owned(),
-                            error: err_data.error_summary.clone(),
+                            error: err_data.error_summary,
                         })
-                    },
-                    ErrorTag::Routine(e) => {
-                        convert_f(e)
                     }
-                };
-                Err(res)
-                //convert_error(action, &err_data, convert_f)
+                    ErrorTag::Routine(e) => convert_f(e),
+                })
             })
-        }
-    });
-    res.err().unwrap()
+            .err()
+            .unwrap()
+    }
 }
 
-async fn refresh_token_impl(token: &String, auth_info_holder: &clouds::AuthInfoHolder) -> Result<String, clouds::RefreshTokenCallError> {
-    log::info!("refresh_token_impl");
-    let lock: Arc<RwLock<u64>> = {
-        (auth_info_holder.read().await).write_mutex.clone()
-    };
+async fn refresh_token_impl(
+    rth: RuntimeHolder,
+    token: &str,
+    auth_info_holder: &clouds::AuthInfoHolder,
+) -> Result<String, clouds::RefreshTokenCallError> {
+    log::debug!("refresh_token_impl");
+    let lock: Arc<RwLock<u64>> = { (auth_info_holder.read().await).write_mutex.clone() };
     let _guard = lock.write().await;
     {
-        let after = {
-            (auth_info_holder.read().await).clone()
-        };
+        let after = { (auth_info_holder.read().await).clone() };
         if token.eq(&after.token) {
-            let res = refresh_token(after.refresh_token, after.client_id, after.secret).await;
+            let res = refresh_token(rth, after.refresh_token, after.client_id, after.secret).await;
             match res {
                 Ok(r) => {
                     let info_ref = &mut *auth_info_holder.write().await;
                     info_ref.token = r.access_token.clone();
                     Ok(r.access_token)
-                },
-                Err(e) => Err(e)
+                }
+                Err(e) => Err(e),
             }
         } else {
             Ok(after.token)
@@ -507,23 +506,20 @@ async fn refresh_token_impl(token: &String, auth_info_holder: &clouds::AuthInfoH
     }
 }
 
-// https://serde.rs/stream-array.html
 async fn int_list_folder(
+    rth: &RuntimeHolder,
     auth_info_holder: clouds::AuthInfoHolder,
     params: ListFolderParams,
-    call_id: u64,
-    events: EventsSender<call_messages::Message>,
+    _call_id: u64,
+    _messages: MessagesSender<call_messages::Message>,
 ) -> Result<ListFolderCallResult, ListFolderCallError> {
-
-    let token = {
-        auth_info_holder.read().await.token.clone()
-    };
+    let token = { auth_info_holder.read().await.token.clone() };
 
     let action = "dropbox.list_folder";
     let serialized = serde_json::to_string(&params).unwrap();
     let path = params.path.clone();
 
-    let client = client_http2();
+    let client = client_http2(rth);
     let req = request_builder_http2()
         .method("POST")
         .header("Authorization", "Bearer ".to_owned() + &token)
@@ -532,74 +528,161 @@ async fn int_list_folder(
         .body(Body::from(serialized))
         .expect("request builder");
 
-    process_simple_request(client, req, action, |tr| {
-        match tr {
-            ListFolderErrorTag::Path { path: ListFolderPathErrorTag::NotFound } => ListFolderCallError::PathNotFound(path)
+    process_simple_request(client, req, action, |tr| match tr {
+        ListFolderErrorTag::Path {
+            path: ListFolderPathErrorTag::NotFound,
+        } => ListFolderCallError::PathNotFound(path),
+    })
+    .await
+}
+
+async fn int_list_folder_continue(
+    rth: &RuntimeHolder,
+    auth_info_holder: clouds::AuthInfoHolder,
+    params: ListFolderContinueParams,
+    _call_id: u64,
+    _messages: MessagesSender<call_messages::Message>,
+) -> Result<ListFolderCallResult, ListFolderCallError> {
+    let token = { auth_info_holder.read().await.token.clone() };
+
+    let action = "dropbox.list_folder_continue";
+    let serialized = serde_json::to_string(&params).unwrap();
+
+    let client = client_http2(rth);
+    let req = request_builder_http2()
+        .method("POST")
+        .header("Authorization", "Bearer ".to_owned() + &token)
+        .header("Content-Type", "application/json")
+        .uri("https://api.dropboxapi.com/2/files/list_folder/continue")
+        .body(Body::from(serialized))
+        .expect("request builder");
+
+    process_simple_request(client, req, action, |tr| match tr {
+        ListFolderErrorTag::Path {
+            path: ListFolderPathErrorTag::NotFound,
+        } => ListFolderCallError::PathNotFound("".into()),
+    })
+    .await
+}
+
+struct ListFolderTokenMessageCreator {
+    call_id: u64,
+}
+
+impl WithRefreshToken<call_messages::Message> for ListFolderTokenMessageCreator {
+    fn refresh_token(&self) -> call_messages::Message {
+        call_messages::Message {
+            call_id: Some(self.call_id),
+            data: call_messages::Data::ListFolder(call_messages::ListFolder::RefreshToken),
         }
-    }).await
-}
-
-struct ListFolderTokenEventsCreator {
-    call_id: u64,
-}
-
-impl WithRefreshToken<call_messages::Message> for ListFolderTokenEventsCreator {
-    fn refresh_token(&self) -> call_messages::Message {
-        call_messages::Message { call_id: self.call_id, data: call_messages::Data::ListFolder(call_messages::ListFolder::RefreshToken) }
     }
 
     fn refresh_token_complete(&self) -> call_messages::Message {
-        call_messages::Message { call_id: self.call_id, data: call_messages::Data::ListFolder(call_messages::ListFolder::RefreshTokenComplete) }
+        call_messages::Message {
+            call_id: Some(self.call_id),
+            data: call_messages::Data::ListFolder(call_messages::ListFolder::RefreshTokenComplete),
+        }
     }
 }
 
-struct DownloadFileTokenEventsCreator {
+struct DownloadFileTokenMessageCreator {
     call_id: u64,
 }
 
-impl WithRefreshToken<call_messages::Message> for DownloadFileTokenEventsCreator {
+impl WithRefreshToken<call_messages::Message> for DownloadFileTokenMessageCreator {
     fn refresh_token(&self) -> call_messages::Message {
-        call_messages::Message { call_id: self.call_id, data: call_messages::Data::DownloadFile(call_messages::DownloadFile::RefreshToken) }
+        call_messages::Message {
+            call_id: Some(self.call_id),
+            data: call_messages::Data::DownloadFile(call_messages::DownloadFile::RefreshToken),
+        }
     }
 
     fn refresh_token_complete(&self) -> call_messages::Message {
-        call_messages::Message { call_id: self.call_id, data: call_messages::Data::DownloadFile(call_messages::DownloadFile::RefreshTokenComplete) }
+        call_messages::Message {
+            call_id: Some(self.call_id),
+            data: call_messages::Data::DownloadFile(
+                call_messages::DownloadFile::RefreshTokenComplete,
+            ),
+        }
     }
 }
 
 pub async fn list_folder(
+    rth: RuntimeHolder,
     auth_info_holder: clouds::AuthInfoHolder,
     params: ListFolderParams,
     call_id: u64,
-    events: EventsSender<call_messages::Message>,
+    messages: MessagesSender<call_messages::Message>,
 ) -> Result<ListFolderCallResult, ListFolderCallError> {
-    call_with_token_auto_refresh(auth_info_holder.clone(), events.clone(), ListFolderTokenEventsCreator {call_id}, || async {
-        int_list_folder(auth_info_holder.clone(), params.clone(), call_id, events.clone()).await
-    }).await
+    let rth_clone = rth.clone();
+    call_with_token_auto_refresh(
+        rth,
+        auth_info_holder.clone(),
+        messages.clone(),
+        ListFolderTokenMessageCreator { call_id },
+        || async {
+            int_list_folder(
+                &rth_clone,
+                auth_info_holder.clone(),
+                params.clone(),
+                call_id,
+                messages.clone(),
+            )
+            .await
+        },
+    )
+    .await
+}
+
+pub async fn list_folder_continue(
+    rth: RuntimeHolder,
+    auth_info_holder: clouds::AuthInfoHolder,
+    params: ListFolderContinueParams,
+    call_id: u64,
+    messages: MessagesSender<call_messages::Message>,
+) -> Result<ListFolderCallResult, ListFolderCallError> {
+    let rth_clone = rth.clone();
+    call_with_token_auto_refresh(
+        rth,
+        auth_info_holder.clone(),
+        messages.clone(),
+        ListFolderTokenMessageCreator { call_id },
+        || async {
+            int_list_folder_continue(
+                &rth_clone,
+                auth_info_holder.clone(),
+                params.clone(),
+                call_id,
+                messages.clone(),
+            )
+            .await
+        },
+    )
+    .await
 }
 
 pub async fn int_download_file(
+    rth: &RuntimeHolder,
     auth_info_holder: clouds::AuthInfoHolder,
     params: DownloadFileParams,
     call_id: u64,
-    events: EventsSender<call_messages::Message>,
+    messages: MessagesSender<call_messages::Message>,
 ) -> Result<DownloadFileCallResult, DownloadFileCallError> {
-//    type ResType = DownloadFileCallResult;
-//    type ErrType = DownloadFileCallError;
-    use http_body::Body; // for body.data()
-    use call_messages::Message;
     use call_messages::Data::DownloadFile as MsgData;
     use call_messages::DownloadFile as msg;
+    use call_messages::Message;
+    use http_body::Body; // for body.data()
 
-    let token = {
-        auth_info_holder.read().await.token.clone()
-    };
+    type ResultType = DownloadFileCallResult;
+    type ErrorType = DownloadFileCallError;
+
+    let token = { auth_info_holder.read().await.token.clone() };
 
     let action = "dropbox.download_file";
     let serialized = serde_json::to_string(&params).unwrap();
     let file_path = params.path.clone();
 
-    let client = client_http2();
+    let client = client_http2(rth);
     let req = request_builder_http2()
         .method("POST")
         .header("Authorization", "Bearer ".to_owned() + &token)
@@ -610,151 +693,230 @@ pub async fn int_download_file(
 
     let start = Instant::now();
 
-//    state.send(CallState::WaitingForResponse);
-    let mut bytes_recieved: u64 = 0;
+    //    state.send(CallState::WaitingForResponse);
+    let mut bytes_received: u64 = 0;
     let res = match client.request(req).await {
         Ok(response) => {
             let status = response.status().as_u16();
             if response.status().is_success() {
                 let mut headers_str = String::new();
                 for h in response.headers() {
-                    headers_str.push_str(&(h.0.to_string() + ":" + &(h.1.to_str().unwrap().to_string()) + ", "));
+                    headers_str.push_str(
+                        &(h.0.to_string() + ":" + &(h.1.to_str().unwrap().to_string()) + ", "),
+                    );
                 }
                 let header_name = "dropbox-api-result";
                 let header = response.headers().get(header_name);
                 if header.is_some() {
                     let header_value = header.unwrap();
-                    match serde_json::from_slice(header_value.as_bytes()) as Result<DownloadFileCallResult, serde_json::Error> {
+                    match serde_json::from_slice(header_value.as_bytes())
+                        as Result<ResultType, serde_json::Error>
+                    {
                         Ok(final_res) => {
                             use std::io::prelude::*;
                             let file_size = final_res.size;
-                            let _ = events.send(Message { call_id, data: MsgData(msg::SizeInfo { size: Some(file_size) }) });
+                            let _ = messages.send(Message {
+                                call_id: Some(call_id),
+                                data: MsgData(msg::SizeInfo {
+                                    size: Some(file_size),
+                                }),
+                            });
                             match std::fs::File::create(&params.save_to) {
                                 Ok(mut f) => {
-                                    let mut tmp_res: Result<DownloadFileCallResult, DownloadFileCallError> = Ok(final_res);
+                                    let mut tmp_res: Result<ResultType, ErrorType> = Ok(final_res);
                                     let (_, mut body) = response.into_parts();
                                     while let Some(next) = body.data().await {
                                         match next {
                                             Ok(chunk) => {
-//                                                    log::info!("chunk size: {}", chunk.len().to_string());
-                                                bytes_recieved = bytes_recieved + chunk.len() as u64;
-                                                let _ = events.send(Message { call_id, data: MsgData(msg::Progress { value: bytes_recieved }) });
+                                                // log::info!("chunk size: {}", chunk.len().to_string());
+                                                bytes_received += chunk.len() as u64;
+                                                let _ = messages.send(Message {
+                                                    call_id: Some(call_id),
+                                                    data: MsgData(msg::Progress {
+                                                        value: bytes_received,
+                                                    }),
+                                                });
                                                 if let Err(e) = f.write_all(&chunk) {
-                                                    tmp_res = Err(DownloadFileCallError::e_file_write(&action, e, &params.path, &params.save_to));
+                                                    tmp_res = Err(ErrorType::e_file_write(
+                                                        action,
+                                                        e,
+                                                        &params.path,
+                                                        &params.save_to,
+                                                    ));
                                                     break;
                                                 }
-                                            },
+                                            }
                                             Err(e) => {
-                                                tmp_res = Err(DownloadFileCallError::e_next_chunk(&action, e, &params.path, bytes_recieved));
+                                                tmp_res = Err(ErrorType::e_next_chunk(
+                                                    action,
+                                                    e,
+                                                    &params.path,
+                                                    bytes_received,
+                                                ));
                                                 break;
                                             }
                                         }
                                     }
                                     if tmp_res.is_ok() {
-                                        log::info!("chunks done");
+                                        log::debug!("chunks done");
                                         if let Err(e) = f.sync_all() {
-                                            tmp_res = Err(DownloadFileCallError::e_file_sync_all(&action, e, &params.path, &params.save_to));
+                                            tmp_res = Err(ErrorType::e_file_sync_all(
+                                                action,
+                                                e,
+                                                &params.path,
+                                                &params.save_to,
+                                            ));
                                         }
                                     }
                                     tmp_res
                                 }
-                                Err(e) => Err(DownloadFileCallError::e_file_create(&action, e, &params.path, &params.save_to))
+                                Err(e) => Err(ErrorType::e_file_create(
+                                    action,
+                                    e,
+                                    &params.path,
+                                    &params.save_to,
+                                )),
                             }
-                        },
-                        Err(e) => Err(DownloadFileCallError::Base(clouds::BaseError::e_response_body_deserialization(&action, e)))
+                        }
+                        Err(e) => Err(ErrorType::Base(
+                            clouds::BaseError::e_response_body_deserialization(action, e),
+                        )),
                     }
-                }
-                else {
-                    Err(DownloadFileCallError::e_header_not_found(&action, header_name, &headers_str, &params.path, status))
+                } else {
+                    Err(ErrorType::e_header_not_found(
+                        action,
+                        header_name,
+                        &headers_str,
+                        &params.path,
+                        status,
+                    ))
                 }
             } else {
-                let err = create_error_from_body(response, &action, status, |e| {
-                   match e {
-                       DownloadFileErrorTag::Path { path: DownloadFilePathErrorTag::NotFound } => DownloadFileCallError::NotFound(file_path),
-                   }
-                }).await;
-                Err(err)
-//                Err(DownloadFileCallError::Base(err))
+                match hyper::body::to_bytes(response.into_body()).await {
+                    Ok(data) => {
+                        let err = create_error_from_body_data(&data, action, status, |e| match e {
+                            DownloadFileErrorTag::Path {
+                                path: DownloadFilePathErrorTag::NotFound,
+                            } => ErrorType::NotFound(file_path),
+                        });
+                        Err(err)
+                    }
+                    Err(e) => Err(ErrorType::Base(clouds::BaseError::e_error_body_aggregate(
+                        action,
+                        e.into(),
+                    ))),
+                }
             }
-        },
-        Err(e) => Err(DownloadFileCallError::Base(clouds::BaseError::e_response_wait(action, &e)))
+        }
+        Err(e) => Err(ErrorType::Base(clouds::BaseError::e_response_wait(
+            action, &e,
+        ))),
     };
 
     let total = start.elapsed();
-    if total.as_secs() !=0 {
-        log::info!("downloaded {} kbytes at {:#?}, speed: {} kbytes/sec", (bytes_recieved / 1024).to_string(), total, (bytes_recieved / 1024 /total.as_secs()).to_string())
-    }
-    else {
-        log::info!("downloaded {} kbytes at {:#?}", (bytes_recieved / 1024).to_string(), total)
+    if total.as_secs() != 0 {
+        log::debug!(
+            "downloaded {} kbytes at {:#?}, speed: {} kbytes/sec",
+            (bytes_received / 1024).to_string(),
+            total,
+            (bytes_received / 1024 / total.as_secs()).to_string()
+        )
+    } else {
+        log::debug!(
+            "downloaded {} kbytes at {:#?}",
+            (bytes_received / 1024).to_string(),
+            total
+        )
     }
     res
 }
 
 pub async fn download_file(
+    rth: RuntimeHolder,
     auth_info_holder: clouds::AuthInfoHolder,
     params: DownloadFileParams,
     call_id: u64,
-    events: EventsSender<call_messages::Message>,
+    messages: MessagesSender<call_messages::Message>,
 ) -> Result<DownloadFileCallResult, DownloadFileCallError> {
-    call_with_token_auto_refresh(auth_info_holder.clone(), events.clone(), DownloadFileTokenEventsCreator {call_id}, || async {
-        int_download_file(auth_info_holder.clone(), params.clone(), call_id, events.clone()).await
-    }).await
+    let rth_clone = rth.clone();
+    call_with_token_auto_refresh(
+        rth,
+        auth_info_holder.clone(),
+        messages.clone(),
+        DownloadFileTokenMessageCreator { call_id },
+        || async {
+            int_download_file(
+                &rth_clone,
+                auth_info_holder.clone(),
+                params.clone(),
+                call_id,
+                messages.clone(),
+            )
+            .await
+        },
+    )
+    .await
 }
 
 async fn call_with_token_auto_refresh<ResType, ErrType, Fn, Fut, T>(
+    rth: RuntimeHolder,
     auth_info_holder: clouds::AuthInfoHolder,
-    events: EventsSender<T>,
+    messages: MessagesSender<T>,
     //call_id: u64,
-    events_creator: impl WithRefreshToken<T>,
-    func: Fn
+    message_creator: impl WithRefreshToken<T>,
+    func: Fn,
 ) -> Fut::Output
-    where
-        ErrType: clouds::BaseErrorAccess,
-        Fn: FnMut() -> Fut,
-        Fut: std::future::Future<Output = Result<ResType, ErrType>>,
+where
+    ErrType: clouds::BaseErrorAccess,
+    Fn: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<ResType, ErrType>>,
 {
-    let token = {
-        auth_info_holder.read().await.token.clone()
-    };
+    let token = { auth_info_holder.read().await.token.clone() };
     let mut f = func;
     let final_res = match f().await {
         Ok(res) => Ok(res),
-        Err(mut e) => {
-            if let Some(base) = e.get_base_error() {
-                if base.is_expired_token() {
-                    let _ = events.send(events_creator.refresh_token());
-                    match refresh_token_impl(&token.clone(), &auth_info_holder.clone()).await {
+        Err(mut e) => match e.get_base_error() {
+            Some(base) => {
+                if base.is_token_error() {
+                    let _ = messages.send(message_creator.refresh_token());
+                    match refresh_token_impl(rth, &token.clone(), &auth_info_holder.clone()).await {
                         Ok(_token) => {
-                            let _ = events.send(events_creator.refresh_token_complete());
+                            let _ = messages.send(message_creator.refresh_token_complete());
                             f().await
-                        },
-                        Err(refresh_e) => {
-                            let base_error = e.get_base_error_mut();
-                            if base_error.is_some() {
-                                let base = base_error.unwrap();
-                                if let clouds::BaseError::ExpiredAccessToken{ ref mut refresh_error } = base {
-                                    *refresh_error = Some(Box::new(refresh_e));
-                                    Err(e)
-                                } else {
-                                    panic!()
-                                }
-                            } else {
-                                panic!()
-                            }
                         }
+                        Err(refresh_e) => match e.get_base_error_mut() {
+                            Some(clouds::BaseError::ExpiredAccessToken {
+                                ref mut refresh_error,
+                            }) => {
+                                *refresh_error = Some(Box::new(refresh_e));
+                                Err(e)
+                            }
+                            Some(clouds::BaseError::AccessTokenMalformed {
+                                ref mut refresh_error,
+                                ..
+                            }) => {
+                                *refresh_error = Some(Box::new(refresh_e));
+                                Err(e)
+                            }
+                            Some(clouds::BaseError::InvalidAuthorizationValue {
+                                ref mut refresh_error,
+                                ..
+                            }) => {
+                                *refresh_error = Some(Box::new(refresh_e));
+                                Err(e)
+                            }
+                            Some(_) => panic!(),
+                            None => panic!(),
+                        },
                     }
-
-                }
-                else {
+                } else {
                     Err(e)
                 }
             }
-            else {
-                Err(e)
-            }
-        }
+            None => Err(e),
+        },
     };
-//    state.send(CallState::Done);
+    //    state.send(CallState::Done);
     final_res
 }
 
@@ -762,51 +924,57 @@ async fn process_simple_request<ResType, ErrorType, TRoutine, CF>(
     client: Client<hyper_rustls::HttpsConnector<hyper::client::HttpConnector>>,
     req: http::Request<hyper::Body>,
     action: &str,
-    convert_f: CF
+    convert_f: CF,
 ) -> Result<ResType, ErrorType>
-    where
-        ResType: serde::de::DeserializeOwned,
-        ErrorType: clouds::BaseErrorAccess,
-        CF: FnOnce(TRoutine) -> ErrorType,
-        TRoutine: serde::de::DeserializeOwned
+where
+    ResType: serde::de::DeserializeOwned,
+    ErrorType: clouds::BaseErrorAccess,
+    CF: FnOnce(TRoutine) -> ErrorType,
+    TRoutine: serde::de::DeserializeOwned,
 {
-    use bytes::Buf;// for buf.reader()
     match client.request(req).await {
         Ok(response) => {
             let status = response.status().as_u16();
-//                    if status == http::StatusCode::OK {
-            if response.status().is_success() {
-                match body_aggregator::async_aggregate(response).await {
-                    Ok(buf) => {
-                        match serde_json::from_reader(buf.reader()) as Result<ResType, serde_json::Error> {
-                            Ok(res) => Ok(res),
-                            Err(e) => {
-                                Err(ErrorType::from_base(clouds::BaseError::e_response_body_deserialization(action, e)))
-                            }
-                        }
-                    },
-                    Err(e) => Err(ErrorType::from_base(clouds::BaseError::e_response_body_aggregate(action, e)))
-                }
-            }
-            else {
-                Err(create_error_from_body(response, &action, status, convert_f).await)
-            }
-        },
-        Err(e) => Err(ErrorType::from_base(clouds::BaseError::e_response_wait(action, &e)))
+            let is_success = response.status().is_success();
+            hyper::body::to_bytes(response.into_body())
+                .await
+                .map_err(|e| {
+                    ErrorType::from_base(clouds::BaseError::e_response_body_aggregate(action, e))
+                })
+                .and_then(|body_data| {
+                    if is_success {
+                        serde_json::from_slice(&body_data).map_err(|e| {
+                            ErrorType::from_base(
+                                clouds::BaseError::e_response_body_deserialization(action, e),
+                            )
+                        })
+                    } else {
+                        Err(create_error_from_body_data(
+                            &body_data, action, status, convert_f,
+                        ))
+                    }
+                })
+        }
+        Err(e) => Err(ErrorType::from_base(clouds::BaseError::e_response_wait(
+            action, &e,
+        ))),
     }
 }
 
-// https://www.dropbox.com/developers/documentation/http/documentation
-// https://curl.se/docs/manpage.html
-pub async fn auth_code_to_tokens(code: String, redirect_uri: String, client_id: String, secret: String) -> Result<CodeToTokensResult, clouds::AuthCodeToTokensCallError>
-{
+pub async fn auth_code_to_tokens(
+    rth: &RuntimeHolder,
+    code: String,
+    redirect_uri: String,
+    client_id: String,
+    secret: String,
+) -> Result<CodeToTokensResult, clouds::AuthCodeToTokensCallError> {
     type ResType = CodeToTokensResult;
     type ErrorType = clouds::AuthCodeToTokensCallError;
     type FuncRes = Result<ResType, ErrorType>;
     let action = "dropbox.auth_code_to_tokens";
 
     let exec = || async {
-        let client = client_http2();
+        let client = client_http2(rth);
         let body = form_urlencoded::Serializer::new(String::new())
             .append_pair("code", &code)
             .append_pair("grant_type", "authorization_code")
@@ -814,81 +982,89 @@ pub async fn auth_code_to_tokens(code: String, redirect_uri: String, client_id: 
             .finish();
         let req = request_builder_http2()
             .method("POST")
-            .header("Authorization", "Basic ".to_string() + &base64::encode(format!("{}:{}", client_id, secret).as_bytes()))
+            .header(
+                "Authorization",
+                "Basic ".to_string()
+                    + &base64::encode(format!("{}:{}", client_id, secret).as_bytes()),
+            )
             .header("Content-Type", "application/x-www-form-urlencoded")
             .uri("https://api.dropbox.com/oauth2/token")
             .body(Body::from(body))
             .expect("request builder");
 
-        let res: FuncRes = process_simple_request(client, req, action, |tr| {
-            match tr {
-                AuthCodeToTokenErrorTag::NotImplemented => clouds::AuthCodeToTokensCallError::Other("some AuthCodeToTokensCallError error".to_string())
-            }
-        }).await;
+        let res: FuncRes = process_simple_request(client, req, action, |tr| match tr {
+            AuthCodeToTokenErrorTag::NotImplemented => clouds::AuthCodeToTokensCallError::Other(
+                "some AuthCodeToTokensCallError error".to_string(),
+            ),
+        })
+        .await;
 
-        //process_oauth2type_request(client, req, action).await;
-        let res = res.map_err(|e| {
-            match e.is_permanent() {
-                true => backoff::Error::Permanent(e),
-                false => backoff::Error::Transient{err: e, retry_after: Some(std::time::Duration::from_millis(100))}
-            }
-        });
-        res
+        res.map_err(|e| match e.is_permanent() {
+            true => backoff::Error::Permanent(e),
+            false => backoff::Error::Transient(e),
+        })
     };
 
-    let mut backoff = ExponentialBackoff::default();
-    backoff.max_interval = Duration::from_secs(1);
-    backoff.max_elapsed_time = Some(Duration::from_secs(1));
+    let backoff = new_backoff();
     retry(backoff, exec).await
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-struct Oauth2Code400ErrorData {
-    error_description: String,
-    error: String
+fn new_backoff() -> ExponentialBackoff {
+    let backoff = ExponentialBackoff {
+        initial_interval: Duration::from_millis(100),
+        multiplier: 2.0,
+        randomization_factor: 0.5,
+        max_interval: Duration::from_secs(2),
+        max_elapsed_time: Some(Duration::from_secs(15)),
+        ..Default::default()
+    };
+    backoff
 }
 
-pub async fn refresh_token(refresh_token: String, client_id: String, secret: String) -> Result<RefreshTokenResult, clouds::RefreshTokenCallError> {
+pub async fn refresh_token(
+    rth: RuntimeHolder,
+    refresh_token: String,
+    client_id: String,
+    secret: String,
+) -> Result<RefreshTokenResult, clouds::RefreshTokenCallError> {
     type ResType = RefreshTokenResult;
     type ErrorType = clouds::RefreshTokenCallError;
     type FuncRes = Result<ResType, ErrorType>;
     let action = "dropbox.refresh_token";
+    let rth_clone = &rth;
 
     let exec = || async {
-        let client = client_http2();
+        let client = client_http2(rth_clone);
         let body = form_urlencoded::Serializer::new(String::new())
             .append_pair("refresh_token", &refresh_token)
             .append_pair("grant_type", "refresh_token")
             .finish();
         let req = request_builder_http2()
             .method("POST")
-            .header("Authorization", "Basic ".to_string() + &base64::encode(format!("{}:{}", client_id, secret).as_bytes()))
+            .header(
+                "Authorization",
+                "Basic ".to_string()
+                    + &base64::encode(format!("{}:{}", client_id, secret).as_bytes()),
+            )
             .header("Content-Type", "application/x-www-form-urlencoded")
             .uri("https://api.dropbox.com/oauth2/token")
             .body(Body::from(body))
             .expect("request builder");
 
-
-        let res: FuncRes = process_simple_request(client, req, action, |tr| {
-            let res =
-                match tr {
-                    RefreshTokenErrorTag::NotImplemented => clouds::RefreshTokenCallError::InvalidRefreshToken_
-                };
-            res
-        }).await;
-
-        //process_oauth2type_request(client, req, action).await;
-        let res = res.map_err(|e| {
-            match e.is_permanent() {
-                true => backoff::Error::Permanent(e),
-                false => backoff::Error::Transient{err: e, retry_after: Some(std::time::Duration::from_millis(100))}
+        let res: FuncRes = process_simple_request(client, req, action, |tr| match tr {
+            RefreshTokenErrorTag::NotImplemented => {
+                clouds::RefreshTokenCallError::InvalidRefreshToken_
             }
-        });
-        res
+        })
+        .await;
+
+        res.map_err(|e| match e.is_permanent() {
+            true => backoff::Error::Permanent(e),
+            false => backoff::Error::Transient(e),
+        })
     };
 
-    let mut backoff = ExponentialBackoff::default();
-    backoff.max_interval = Duration::from_secs(1);
-    backoff.max_elapsed_time = Some(Duration::from_secs(1));
+    let backoff = new_backoff();
+
     retry(backoff, exec).await
 }

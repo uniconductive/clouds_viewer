@@ -3,8 +3,6 @@ name = "clouds_viewer"
 version = "0.1.1"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [profile.release]
 overflow-checks = false
 lto = true
@@ -13,32 +11,34 @@ codegen-units = 1
 #panic = "abort"
 
 [dependencies]
-#egui = { version = "0.15.0", path = "../egui-0.15.0/egui", default-features = false }
-#eframe = { version = "*", default-features = false, features = ["default_fonts", "egui_glow"] }
-#eframe = { path = "crates/egui-master/eframe", default-features = false, features = ["default_fonts", "egui_glow"] }
-#eframe = { git = "https://github.com/emilk/egui" }
-eframe = { version = "*" }
-serde_json = "*"
-serde = { version = "*", features = ["derive"] }
-chrono = { version = "*", features = ["serde"] }
-bytes = "*"
-thiserror = "*"
-anyhow = "*"
-http = "*"
-http-body = "*"
-futures = "*"
-futures-util = "*"
-hyper = { version = "*", features = ["client", "http1", "http2", "stream", "runtime"] }
-hyper-rustls = { version = "*", features = ["default", "rustls-native-certs", "http2"] }
-#hyper-tls = "*"
-tokio = { version = "*", features = ["full"] }
-log = "*"
-log4rs = "*"
-#async-trait = "*"
-backoff = { version = "*", features = ["tokio"] }
-webbrowser = "*"
-tiny_http = "*"
-base64 = "*"
-#url = "*"
-form_urlencoded = "*"
-open = "*"
+eframe = { version = "0.16.0", default-features = false, features = ["default_fonts", "egui_glow"] }
+serde_json = { version = "1.0.78", features = ["default"] }
+serde = { version = "1.0.136", features = ["derive"] }
+chrono = { version = "0.4.19", features = ["serde"] }
+bytes = "1.1.0"
+thiserror = "1.0.30"
+http = "0.2.6"
+http-body = "0.4.4"
+futures = { version = "0.3.21", features = ["default"] }
+futures-util = { version = "0.3.21", features = ["default"] }
+hyper = { version = "0.14.16", features = ["client", "server", "http1", "http2"] }
+hyper-rustls = { version = "0.23.0", features = ["default", "rustls-native-certs", "http2"] }
+tokio = { version = "1.16.1", features = ["full"] }
+log = "0.4.14"
+log4rs = { version = "1.0.0", optional = true }
+env_logger = { version = "0.9.0", optional = true }
+pretty_env_logger = { version = "0.4.0", optional = true }
+backoff = { version = "0.3.0", features = ["tokio"] }
+webbrowser = "0.5.5"
+base64 = "0.13.0"
+form_urlencoded = "1.0.1"
+open = "2.0.2"
+tower = { version = "0.4.11", features = ["default"] }
+itertools = "0.10.3"
+rand = "0.8.4"
+
+[features]
+default = ["log_4rs"]
+log_4rs = ["log4rs"]
+log_env = ["env_logger"]
+log_pretty_env = ["pretty_env_logger"]

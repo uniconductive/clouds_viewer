@@ -1,9 +1,6 @@
-use thiserror;
-use std::sync::Arc;
-
 #[derive(Copy, Clone)]
 pub enum CloudId {
-    Dropbox = 1
+    Dropbox,
 }
 
 #[derive(Clone)]
@@ -13,29 +10,20 @@ pub struct AuthInfo {
     pub client_id: String,
     pub secret: String,
     pub redirect_addresses: Vec<String>,
-    pub write_mutex: Arc<tokio::sync::RwLock<u64>>,
+    pub write_mutex: std::sync::Arc<tokio::sync::RwLock<u64>>,
 }
 
-pub type AuthInfoHolder = Arc<tokio::sync::RwLock<AuthInfo>>;
+pub type AuthInfoHolder = std::sync::Arc<tokio::sync::RwLock<AuthInfo>>;
 
 #[derive(thiserror::Error, Debug, Clone)]
 pub enum BaseError {
-/*
-    #[error("Bad result: (action: {action:?}, hint: {hint:?}, code: {result_code:?}, data: {text:?}, additional: {text:?})")]
-    BadResultCode {
-        action: String,
-        hint: String,
-        result_code: u16,
-        text: String,
-        additional: String,
-    },
-
- */
     #[error("Expired access token{:?}", extract_rte(refresh_error))]
     ExpiredAccessToken {
-        refresh_error: Option<Box<RefreshTokenCallError>>
+        refresh_error: Option<Box<RefreshTokenCallError>>,
     },
-    #[error("Aggregate response body failed: (action: {action:?}, hint: {hint:?}, error: {error:?})")]
+    #[error(
+        "Aggregate response body failed: (action: {action:?}, hint: {hint:?}, error: {error:?})"
+    )]
     ResponseBodyAggregate {
         action: String,
         hint: String,
@@ -65,36 +53,50 @@ pub enum BaseError {
         error: String,
         error_data: String,
     },
-    #[error("unknown api error data structure: (action: {action:?}, hint: {hint:?}, error: {error:?})")]
+    #[error(
+        "unknown api error data structure: (action: {action:?}, hint: {hint:?}, error: {error:?})"
+    )]
     UnknownApiErrorStructure {
         action: String,
         hint: String,
         error: String,
     },
-    #[error("access token malformed: (action: {action:?})")]
+    #[error(
+        "access token malformed: (action: {action:?}){:?}",
+        extract_rte(refresh_error)
+    )]
     AccessTokenMalformed {
         action: String,
+        refresh_error: Option<Box<RefreshTokenCallError>>,
     },
-    #[error("unknown api error result: (action: {action:?}, status: {status:?}, error: {error:?})")]
+    #[error("refresh token malformed: (action: {action:?})")]
+    RefreshTokenMalformed { action: String },
+    #[error("invalid client_id or client_secret: (action: {action:?})")]
+    InvalidClientIdOrClientSecret { action: String },
+    #[error(
+        r#"Invalid authorization value in HTTP header "Authorization" (action: {action:?}){:?}"#,
+        extract_rte(refresh_error)
+    )]
+    InvalidAuthorizationValue {
+        action: String,
+        refresh_error: Option<Box<RefreshTokenCallError>>,
+    },
+    #[error(
+        "unknown api error result: (action: {action:?}, status: {status:?}, error: {error:?})"
+    )]
     UnknownApiErrorResult {
         action: String,
         status: u16,
         error: String,
     },
-
-//    #[error("unknown data store error")]
-//    Unknown,
 }
 
 fn extract_rte(e: &Option<Box<RefreshTokenCallError>>) -> String {
     match e {
-        Some(e) => {
-            format!(", with refresh token error: {}", (*e).to_string())
-        },
-        None => "".to_owned()
+        Some(e) => format!(", with refresh token error: {}", *e),
+        None => "".to_owned(),
     }
 }
-
 
 impl BaseError {
     pub fn is_permanent(&self) -> bool {
@@ -103,6 +105,10 @@ impl BaseError {
             | Self::ResponseBodyDeserialization {..}
             | Self::UnknownApiErrorStructure {..}
             | Self::AccessTokenMalformed {..}
+            | Self::InvalidClientIdOrClientSecret {..}
+            | Self::InvalidAuthorizationValue {..}
+            | Self::RefreshTokenMalformed {..}
+            | Self::UnknownApiErrorResult {..}
             => true,
 
             Self::ResponseBodyAggregate {..}
@@ -110,22 +116,23 @@ impl BaseError {
             | Self::ResponseWait {..}
             | Self::ErrorBodyAggregate {..}
             | Self::ErrorBodyDeserialization {..}
-            | Self::UnknownApiErrorResult {..}
             => false
         }
     }
 
-    pub fn is_expired_token(&self) -> bool {
-        match self {
-            Self::ExpiredAccessToken {..} => true,
-            _ => false
-        }
-    }
+    // pub fn is_expired_token(&self) -> bool {
+    //     match self {
+    //         Self::ExpiredAccessToken { .. } => true,
+    //         _ => false,
+    //     }
+    // }
 
     pub fn is_token_error(&self) -> bool {
         match self {
-            Self::ExpiredAccessToken {..} | Self::AccessTokenMalformed {..} => true,
-            _ => false
+            Self::ExpiredAccessToken { .. }
+            | Self::AccessTokenMalformed { .. }
+            | Self::InvalidAuthorizationValue { .. } => true,
+            _ => false,
         }
     }
 
@@ -148,7 +155,11 @@ impl BaseError {
     }
 
     pub fn e_response_body_deserialization(action: &str, e: serde_json::Error) -> Self {
-        log::error!("{}(response body deserialization error): {}", action, e.to_string());
+        log::error!(
+            "{}(response body deserialization error): {}",
+            action,
+            e.to_string()
+        );
         Self::ResponseBodyDeserialization {
             action: action.to_owned(),
             hint: "".to_owned(),
@@ -165,12 +176,21 @@ impl BaseError {
         }
     }
 
-    pub fn e_error_body_deserialization(action: &str, e: serde_json::Error, error_data: &String) -> Self {
-        log::error!("{}(error body deserialization error): {}, data: '{}'", action, e.to_string(), error_data);
+    pub fn e_error_body_deserialization(
+        action: &str,
+        e: serde_json::Error,
+        error_data: &str,
+    ) -> Self {
+        log::error!(
+            "{}(error body deserialization error): {}, data: '{}'",
+            action,
+            e.to_string(),
+            error_data
+        );
         Self::ErrorBodyDeserialization {
             action: action.to_owned(),
             error: e.to_string(),
-            error_data: error_data.clone(),
+            error_data: error_data.to_owned(),
         }
     }
 
@@ -178,27 +198,55 @@ impl BaseError {
         log::error!("{}: access token malformed", action);
         Self::AccessTokenMalformed {
             action: action.to_owned(),
+            refresh_error: None,
         }
     }
 
-    pub fn e_unknown_api_error_result(action: &str, status: u16, error: &String) -> Self {
-        log::error!("{}(unknown api error result for status {}): {}", action, status, error);
+    pub fn e_refresh_token_malformed(action: &str) -> Self {
+        log::error!("{}: refresh token malformed", action);
+        Self::RefreshTokenMalformed {
+            action: action.to_owned(),
+        }
+    }
+
+    pub fn e_invalid_client_id_or_client_secret(action: &str) -> Self {
+        log::error!("{}: Invalid client_id or client_secret", action);
+        Self::InvalidClientIdOrClientSecret {
+            action: action.to_owned(),
+        }
+    }
+
+    pub fn e_invalid_authorization_value(action: &str) -> Self {
+        log::error!(
+            r#"{}: Invalid authorization value in HTTP header "Authorization""#,
+            action
+        );
+        Self::InvalidAuthorizationValue {
+            action: action.to_owned(),
+            refresh_error: None,
+        }
+    }
+
+    pub fn e_unknown_api_error_result(action: &str, status: u16, error: &str) -> Self {
+        log::error!(
+            "{}(unknown api error result for status {}): {}",
+            action,
+            status,
+            error
+        );
         Self::UnknownApiErrorResult {
             action: action.to_owned(),
-            error: error.clone(),
-            status: status,
+            error: error.to_owned(),
+            status,
         }
     }
 }
 
 pub trait BaseErrorAccess {
     fn get_base_error(&self) -> Option<&BaseError>;
-//    fn get_base_error_mut(&mut self) -> Option<&mut (&mut BaseCloudError)>;
     fn get_base_error_mut(&mut self) -> Option<&mut BaseError>;
     fn from_base(base: BaseError) -> Self;
-//    fn from_base_selfed(&self, base: BaseCloudError) -> Self;
 }
-
 
 #[derive(thiserror::Error, Debug)]
 pub enum AuthCodeToTokensCallError {
@@ -212,7 +260,7 @@ impl AuthCodeToTokensCallError {
     pub fn is_permanent(&self) -> bool {
         match &self {
             Self::Base(base) => base.is_permanent(),
-            Self::Other(_) => true // ?
+            Self::Other(_) => true, // ?
         }
     }
 }
@@ -221,14 +269,14 @@ impl BaseErrorAccess for AuthCodeToTokensCallError {
     fn get_base_error(&self) -> Option<&BaseError> {
         match self {
             Self::Base(res) => Some(res),
-            _ => None
+            _ => None,
         }
     }
 
     fn get_base_error_mut(&mut self) -> Option<&mut BaseError> {
         match self {
             Self::Base(res) => Some(res),
-            _ => None
+            _ => None,
         }
     }
 
@@ -243,32 +291,29 @@ pub enum RefreshTokenCallError {
     Base(BaseError),
     #[error("Invalid refresh token")]
     InvalidRefreshToken_,
-//    #[error("Invalid refresh token")]
-//    InvalidRefreshToken,
 }
 
 impl RefreshTokenCallError {
     pub fn is_permanent(&self) -> bool {
         match &self {
             Self::Base(base) => base.is_permanent(),
-            Self::InvalidRefreshToken_ => true
+            Self::InvalidRefreshToken_ => true,
         }
     }
 }
 
 impl BaseErrorAccess for RefreshTokenCallError {
-
     fn get_base_error(&self) -> Option<&BaseError> {
         match self {
             Self::Base(res) => Some(res),
-            _ => None
+            _ => None,
         }
     }
 
     fn get_base_error_mut(&mut self) -> Option<&mut BaseError> {
         match self {
             Self::Base(res) => Some(res),
-            _ => None
+            _ => None,
         }
     }
 
@@ -276,5 +321,3 @@ impl BaseErrorAccess for RefreshTokenCallError {
         Self::Base(base)
     }
 }
-
-

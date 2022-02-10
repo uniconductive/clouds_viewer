@@ -1,6 +1,10 @@
 use crate::storage_models;
 
+#[derive(Debug)]
 pub enum ListFolder {
+    Start {
+        path: String,
+    },
     Started {
         handle: tokio::task::JoinHandle<()>,
         path: String,
@@ -16,6 +20,7 @@ pub enum ListFolder {
     RefreshTokenComplete,
 }
 
+#[derive(Debug)]
 pub enum DownloadFile {
     Started {
         handle: tokio::task::JoinHandle<()>,
@@ -23,7 +28,7 @@ pub enum DownloadFile {
         local_path: String,
     },
     SizeInfo {
-        size: Option<u64>
+        size: Option<u64>,
     },
     Progress {
         value: u64,
@@ -36,13 +41,42 @@ pub enum DownloadFile {
     RefreshTokenComplete,
 }
 
+#[derive(Debug)]
+pub enum Auth {
+    Start,
+    Binded {
+        redirect_url: String,
+        addr: std::net::SocketAddr,
+        state_field: String,
+    },
+    LocalServerShutdowner {
+        cancel_informer: tokio::sync::oneshot::Sender<()>,
+        cancel_awaiter: tokio::sync::oneshot::Receiver<()>,
+    },
+    CheckAvailability {
+        redirect_url: String,
+        state_field: String,
+    },
+    ServerReady {
+        redirect_url: String,
+        state_field: String,
+    },
+    Finished {
+        result: Result<(), storage_models::AuthError>,
+    },
+    Cancel,
+}
+
 // Message data
+#[derive(Debug)]
 pub enum Data {
     ListFolder(ListFolder),
     DownloadFile(DownloadFile),
+    Auth(Auth),
 }
 
+#[derive(Debug)]
 pub struct Message {
-    pub call_id: u64,
+    pub call_id: Option<u64>,
     pub data: Data,
 }

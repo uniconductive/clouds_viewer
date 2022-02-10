@@ -1,7 +1,7 @@
-use serde::{Serialize, Deserialize};
-use std::result::Result;
+use serde::{Deserialize, Serialize};
 use std::error::Error;
-use std::path::{PathBuf};
+use std::path::PathBuf;
+use std::result::Result;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct TokensConfig {
@@ -60,31 +60,32 @@ pub fn get_config_file_path(force_near_binary: bool) -> Result<(PathBuf, bool), 
     }
     if force_near_binary {
         Ok((path, false))
+    } else if path.exists() && path.is_file() {
+        Ok((path, true))
     } else {
-        if path.exists() && path.is_file() {
-            Ok((path, true))
+        let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default();
+        //env!("CARGO_MANIFEST_DIR");
+        if manifest_dir.is_empty() {
+            Ok((path, false))
         } else {
-            let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default();
-            //env!("CARGO_MANIFEST_DIR");
-            if manifest_dir.is_empty() {
-                Ok((path, false))
-            } else {
-                let file_name = path.file_name().unwrap().to_str().unwrap().to_string();
-                let mut res = PathBuf::from(manifest_dir);
-                res.push(&file_name);
-                Ok((res, false))
-            }
+            let file_name = path.file_name().unwrap().to_str().unwrap().to_string();
+            let mut res = PathBuf::from(manifest_dir);
+            res.push("configs");
+            res.push(&file_name);
+            Ok((res, false))
         }
     }
 }
 
 pub fn load_config() -> Result<AppConfig, Box<dyn Error>> {
     let (file_path, checked) = get_config_file_path(false)?;
-    let file_path_str = file_path.clone().to_str().unwrap().to_string();
+    let file_path_str = file_path.to_str().unwrap().to_string();
     if checked || (file_path.exists() && file_path.is_file()) {
-        println!("config file: '{}'", file_path_str);
-        let data = std::fs::read(file_path).expect(&("Unable to read config file: ".to_owned() + &file_path_str));
-        let res: AppConfig = serde_json::from_slice(&data).expect(&("Unable to parse config file: ".to_owned() + &file_path_str));
+        log::debug!("config file: '{}'", file_path_str);
+        let data = std::fs::read(file_path)
+            .expect(&("Unable to read config file: ".to_owned() + &file_path_str));
+        let res: AppConfig = serde_json::from_slice(&data)
+            .expect(&("Unable to parse config file: ".to_owned() + &file_path_str));
         Ok(res)
     } else {
         panic!("config file '{}' does not exists", &file_path_str)
@@ -103,7 +104,7 @@ pub fn create_default_config() -> Result<(), Box<dyn Error>> {
     save_config(&AppConfig {
         listen_on: vec!["127.0.0.1:8080".into(), "192.168.88.251:8080".into()],
         shares: vec![
-            ShareConfig {name: "rutr".into(), path: r"/lindata/temp/Torrents/Downloaded/".into()},
+            ShareConfig {name: "dist".into(), path: "/lindata/Distr/".into()},
         ],
     })
 }

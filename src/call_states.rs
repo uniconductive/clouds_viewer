@@ -1,9 +1,9 @@
 use crate::storage_models;
 
+#[derive(Debug)]
 pub enum ListFolder {
     Ok,
     Failed(storage_models::ListFolderError),
-    Cancelled,
     InProgress {
         value: Option<u64>,
         value_str: Option<String>,
@@ -12,29 +12,72 @@ pub enum ListFolder {
     RefreshTokenComplete,
 }
 
+#[derive(Debug)]
 pub enum DownloadFile {
     Ok,
     Failed(storage_models::DownloadFileError),
-    Cancelled,
     Started,
-    SizeInfo {
-        size: Option<u64>
-    },
-    InProgress {
-        progress: u64,
-    },
+    SizeInfo { size: Option<u64> },
+    InProgress { progress: u64 },
     RefreshToken,
     RefreshTokenComplete,
 }
 
-// call state data
-pub enum Data {
-    ListFolder { data: ListFolder, path: String },
-    DownloadFile { data: DownloadFile, remote_path: String, local_path: String, size: Option<u64>, downloaded: u64 },
+#[derive(Debug)]
+pub enum AuthProgress {
+    /// before bind
+    StartingLocalServer,
+    Binded {
+        redirect_url: String,
+    },
+    WaitingForLocalServerUp {
+        redirect_url: String,
+    },
+    TryOpenBrowser {
+        auth_url: String,
+    },
+    BrowserOpened {
+        auth_url: String,
+    },
 }
 
+#[derive(Debug)]
+pub enum Auth {
+    Ok,
+    Failed(storage_models::AuthError),
+    InProgress(AuthProgress),
+}
+
+// call state data
+#[derive(Debug)]
+pub enum Data {
+    ListFolder {
+        data: ListFolder,
+        path: String,
+    },
+    DownloadFile {
+        data: DownloadFile,
+        remote_path: String,
+        local_path: String,
+        size: Option<u64>,
+        downloaded: u64,
+    },
+    Auth {
+        data: Auth,
+    },
+}
+
+#[derive(Debug)]
+pub struct Canceller {
+    pub cancel_informer: tokio::sync::oneshot::Sender<()>,
+    pub cancel_awaiter: tokio::sync::oneshot::Receiver<()>,
+}
+
+#[derive(Debug)]
 pub struct State {
-//    pub call_id: u64,
-    pub handle: tokio::task::JoinHandle<()>,
+    pub handles: Vec<tokio::task::JoinHandle<()>>,
+    pub cancellers: Vec<Canceller>,
     pub data: Data,
 }
+
+

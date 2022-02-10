@@ -1,10 +1,11 @@
 use crate::clouds;
+use crate::error;
 use chrono::{DateTime, Utc};
 
 #[derive(Copy, Clone)]
 pub enum StorageType {
     Cloud(clouds::CloudId),
-    FileSystem,
+    //    FileSystem,
 }
 
 #[derive(Debug)]
@@ -20,7 +21,7 @@ pub struct Item {
 #[allow(non_camel_case_types)]
 pub struct list_folder_in_data {
     pub path: String,
-//    pub recursive: bool,
+    //    pub recursive: bool,
 }
 
 #[allow(non_camel_case_types)]
@@ -41,7 +42,6 @@ pub struct download_file_in_data {
 #[derive(Debug)]
 pub struct download_file_out_data {
     pub name: String,
-//    pub file_data: Vec<u8>,
 }
 
 pub enum CallInData {
@@ -55,24 +55,37 @@ pub enum CallInData {
 pub enum ListFolderError {
     #[error("path not found: '{0}'")]
     PathNotFound(String),
-    //        path: String,
-//        underlying_errors: Option<Vec<ListFolderErrorUnderlying>>,
     #[error("token error: '{0}'")]
     Token(String),
     #[error("other error: '{0}'")]
     Other(String),
-//    #[error("Underlying error")]
-//    Underlying(ListFolderErrorUnderlying),
 }
 
 #[derive(thiserror::Error, Debug)]
 pub enum DownloadFileError {
-    //    #[error("remote path not found: '{0}'")]
-//    RemotePathNotFound(String),
+    #[error("remote path not found: '{0}'")]
+    RemotePathNotFound(String),
     #[error("token error: '{0}'")]
     Token(String),
     #[error("other error: '{0}'")]
     Other(String),
-//    #[error("Underlying error")]
-//    Underlying(ListFolderErrorUnderlying),
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum AuthError {
+    #[error("bind errors: '{}'", get_bind_errors_text(errors.clone()))]
+    BindErrors { errors: Vec<error::BindError> },
+    #[error("can't open auth page in default browser: {error}")]
+    CantOpenAuthPageInDefaultBrowser { auth_url: String, error: String },
+    #[error("local server error: {0}")]
+    LocalServerError(String),
+    #[error("incoming request error: '{error}', url: '{url}'")]
+    IncomingRequestError { url: String, error: String },
+    #[error("local server wait for available failed")]
+    LocalServerWaitForAvailabileFailed,
+}
+
+fn get_bind_errors_text(errors: Vec<error::BindError>) -> String {
+    itertools::Itertools::intersperse(errors.iter().map(|v| v.to_string()), ", ".to_string())
+        .collect()
 }
