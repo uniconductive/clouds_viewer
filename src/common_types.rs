@@ -11,8 +11,6 @@ where
 
 trait FutureStatePrinter {
     fn print_state(&mut self);
-    //    fn test(&mut self);
-    //    fn test2(&mut self);
 }
 
 impl<F> FutureStatePrinter for FutureHolder<F>
@@ -48,7 +46,7 @@ impl RuntimeHolder {
     pub fn spawn<T>(
         &self,
         future: T,
-    ) -> std::result::Result<tokio::task::JoinHandle<T::Output>, AsyncRuntimeError>
+    ) -> Result<tokio::task::JoinHandle<T::Output>, AsyncRuntimeError>
     where
         T: std::future::Future + Send + 'static,
         T::Output: Send + 'static,
@@ -83,7 +81,7 @@ impl RuntimeHolder {
     pub fn block_on<T: std::future::Future>(
         &self,
         future: T,
-    ) -> std::result::Result<T::Output, AsyncRuntimeError> {
+    ) -> Result<T::Output, AsyncRuntimeError> {
         let rtg = self.inner.read().unwrap();
         if let Some(rt) = rtg.as_ref() {
             Ok(rt.block_on(future))
@@ -95,7 +93,7 @@ impl RuntimeHolder {
     pub fn shutdown_timeout(
         &self,
         duration: std::time::Duration,
-    ) -> std::result::Result<(), AsyncRuntimeError> {
+    ) -> Result<(), AsyncRuntimeError> {
         let rto = {
             let mut rtg = self.inner.write().unwrap();
             rtg.take()

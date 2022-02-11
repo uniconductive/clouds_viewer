@@ -606,7 +606,7 @@ impl StorageInstance {
         storage_type: storage_models::StorageType,
         path: String,
         call_id: u64,
-    ) -> std::result::Result<(), AsyncRuntimeError> {
+    ) -> Result<(), AsyncRuntimeError> {
         let call_in_data =
             storage_models::CallInData::list_folder(storage_models::list_folder_in_data { path });
 
@@ -630,7 +630,7 @@ impl StorageInstance {
         path: String,
         save_to: String,
         call_id: u64,
-    ) -> std::result::Result<(), AsyncRuntimeError> {
+    ) -> Result<(), AsyncRuntimeError> {
         let call_in_data =
             storage_models::CallInData::download_file(storage_models::download_file_in_data {
                 remote_path: path,

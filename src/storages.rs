@@ -11,7 +11,7 @@ pub async fn storage_call(
     storage_type: storage_models::StorageType,
     call_in_data: storage_models::CallInData,
     call_id: u64,
-) -> std::result::Result<(), AsyncRuntimeError> {
+) -> Result<(), AsyncRuntimeError> {
     match (storage_type, call_in_data) {
         (
             storage_models::StorageType::Cloud(clouds::CloudId::Dropbox),

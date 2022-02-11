@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::path::PathBuf;
-use std::result::Result;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct TokensConfig {
@@ -64,7 +63,6 @@ pub fn get_config_file_path(force_near_binary: bool) -> Result<(PathBuf, bool), 
         Ok((path, true))
     } else {
         let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default();
-        //env!("CARGO_MANIFEST_DIR");
         if manifest_dir.is_empty() {
             Ok((path, false))
         } else {
